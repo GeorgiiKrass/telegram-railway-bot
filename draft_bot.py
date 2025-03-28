@@ -13,19 +13,16 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 BOT_TOKEN = os.getenv("TOKEN")
 NOTES_FILE = "notes.txt"
 REMINDERS_FILE = "reminders.json"
 
 logging.basicConfig(level=logging.INFO)
-scheduler = BackgroundScheduler()
+scheduler = AsyncIOScheduler()
 scheduler.start()
-print("📢 Scheduler started")
-
-reminder_app = None  # будет установлен при запуске
-
+print("📢 AsyncIOScheduler started")
 
 def load_notes():
     try:
@@ -34,11 +31,9 @@ def load_notes():
     except FileNotFoundError:
         return []
 
-
 def save_note(text):
     with open(NOTES_FILE, "a", encoding="utf-8") as f:
         f.write(text + "\n")
-
 
 def load_reminders():
     if not os.path.exists(REMINDERS_FILE):
@@ -46,13 +41,18 @@ def load_reminders():
     with open(REMINDERS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
-
 def save_reminders(reminders):
     with open(REMINDERS_FILE, "w", encoding="utf-8") as f:
         json.dump(reminders, f, indent=2, ensure_ascii=False)
 
+async def send_reminder(bot, chat_id, text, reminder_id):
+    try:
+        print(f"🔔 Async-напоминание: {text} | ID: {reminder_id}")
+        await bot.send_message(chat_id=chat_id, text=f"⏰ Напоминание: {text}")
+    except Exception as e:
+        print(f"❌ Ошибка отправки: {e}")
 
-def schedule_reminder(chat_id, text, when_str, reminder_id):
+def schedule_reminder(bot, chat_id, text, when_str, reminder_id):
     try:
         parsed_time = dateparser.parse(
             when_str,
@@ -63,34 +63,24 @@ def schedule_reminder(chat_id, text, when_str, reminder_id):
             print("⚠️ Время не распознано:", when_str)
             return False
 
-        print(f"✅ Планируем задачу на {parsed_time} | Текст: {text} | ID: {reminder_id}")
+        print(f"✅ Планируем async-задачу на {parsed_time} | Текст: {text} | ID: {reminder_id}")
 
         scheduler.add_job(
-            send_reminder_job,
+            send_reminder,
             trigger='date',
             run_date=parsed_time,
-            args=[chat_id, text, reminder_id],
+            args=[bot, chat_id, text, reminder_id],
             id=reminder_id,
-            replace_existing=True
+            replace_existing=True,
+            coalesce=True
         )
         return parsed_time.strftime("%Y-%m-%d %H:%M")
     except Exception as e:
         logging.error(f"Ошибка при установке напоминания: {e}")
         return False
 
-
-def send_reminder_job(chat_id, text, reminder_id):
-    global reminder_app
-    print(f"🔔 Выполняется напоминание: {text} | ID: {reminder_id}")
-    if reminder_app:
-        reminder_app.create_task(reminder_app.bot.send_message(chat_id=chat_id, text=f"⏰ Напоминание: {text}"))
-    else:
-        print("❌ Ошибка: reminder_app не инициализирован")
-
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет! Напиши заметку или: напомни через 1 минуту - тест")
-
+    await update.message.reply_text("Привет! Напиши заметку или: напомни через 1 минуту - async тест")
 
 async def handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
@@ -102,7 +92,7 @@ async def handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id = update.message.chat_id
             reminder_id = str(uuid.uuid4())
 
-            reminder_time = schedule_reminder(chat_id, reminder_text, when_str, reminder_id)
+            reminder_time = schedule_reminder(context.bot, chat_id, reminder_text, when_str, reminder_id)
             if reminder_time:
                 reminder = {
                     "id": reminder_id,
@@ -124,7 +114,6 @@ async def handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_note(text)
         await update.message.reply_text("💾 Записал!")
 
-
 async def show_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reminders = load_reminders()
     user_reminders = [r for r in reminders if r["chat_id"] == update.message.chat_id]
@@ -139,7 +128,6 @@ async def show_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
              InlineKeyboardButton("❌ Удалить", callback_data=f"delete:{r['id']}")]
         ])
         await update.message.reply_text(text, reply_markup=keyboard)
-
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -156,10 +144,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "done":
         await query.edit_message_text("✅ Отмечено как выполненное.")
 
-
 if __name__ == '__main__':
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-    reminder_app = app  # сохраняем для вызова из APScheduler
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reminders", show_reminders))
     app.add_handler(CallbackQueryHandler(handle_callback))
