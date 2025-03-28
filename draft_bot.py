@@ -1,3 +1,4 @@
+
 import os
 import logging
 import uuid
@@ -50,35 +51,34 @@ def extract_time_and_text(text):
         )
         if parsed:
             print(f"✅ Успех: {parsed}")
-            return time_candidate, text_candidate
+            return time_candidate, text_candidate, parsed
     
     print("❌ Не удалось распарсить ни одну комбинацию")
-    return None, None
+    return None, None, None
 
-def schedule(application, chat_id, text, when_str):
-    print(f"🧠 Пытаемся распарсить: {when_str}")
-    dt = dateparser.parse(
-        when_str,
-        languages=["ru"],
-        settings={
-            "PREFER_DATES_FROM": "future",
-            "RETURN_AS_TIMEZONE_AWARE": True,
-            "RELATIVE_BASE": datetime.now()
-        }
-    )
-    if dt:
-        print(f"📅 Напоминание будет в: {dt}")
+def schedule(application, chat_id, text, when_str, parsed_time):
+    try:
+        job_id = str(uuid.uuid4())
         scheduler.add_job(
-            lambda: application.bot.send_message(chat_id=chat_id, text=f"⏰ Напоминание: {text}"),
+            lambda: send_reminder(application, chat_id, text, job_id),
             trigger='date',
-            run_date=dt
+            run_date=parsed_time,
+            id=job_id
         )
-        r = {"chat_id": chat_id, "text": text, "datetime": dt.strftime("%Y-%m-%d %H:%M")}
+        print(f"✅ Планируем задачу на {parsed_time} | Текст: {text} | ID: {job_id}")
+        r = {"chat_id": chat_id, "text": text, "datetime": parsed_time.strftime("%Y-%m-%d %H:%M"), "id": job_id}
         save_reminder(r)
         return True
-    else:
-        print("❌ Не удалось распарсить дату.")
+    except Exception as e:
+        print(f"❌ Ошибка при планировании задачи: {e}")
         return False
+
+def send_reminder(application, chat_id, text, job_id):
+    try:
+        application.bot.send_message(chat_id=chat_id, text=f"⏰ Напоминание: {text}")
+        print(f"📤 Отправлено напоминание [{job_id}]: {text}")
+    except Exception as e:
+        print(f"❌ Ошибка при отправке напоминания [{job_id}]: {e}")
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     voice: Voice = update.message.voice
@@ -96,9 +96,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text = recog.recognize_google(audio, language="ru-RU")
         print(f"🎙 Текст: {text}")
         if "напомни" in text.lower():
-            when, body = extract_time_and_text(text)
-            if when and body:
-                if schedule(context.application, update.message.chat_id, body, when):
+            when, body, parsed = extract_time_and_text(text)
+            if when and body and parsed:
+                if schedule(context.application, update.message.chat_id, body, when, parsed):
                     await update.message.reply_text("✅ Напоминание установлено")
                     return
             await update.message.reply_text("⚠️ Не удалось распознать время.")
