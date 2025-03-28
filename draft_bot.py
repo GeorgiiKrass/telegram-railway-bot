@@ -3,8 +3,9 @@ import json
 import uuid
 import logging
 import dateparser
+import speech_recognition as sr
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, Voice
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -14,14 +15,18 @@ from telegram.ext import (
     filters,
 )
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from pydub import AudioSegment
 
 BOT_TOKEN = os.getenv("TOKEN")
 NOTES_FILE = "notes.txt"
 REMINDERS_FILE = "reminders.json"
+AUDIO_DIR = "audio_notes"
+
+os.makedirs(AUDIO_DIR, exist_ok=True)
 
 logging.basicConfig(level=logging.INFO)
 scheduler = AsyncIOScheduler()
-print("📢 AsyncIOScheduler создан")
 
 def load_notes():
     try:
@@ -46,7 +51,6 @@ def save_reminders(reminders):
 
 async def send_reminder(bot, chat_id, text, reminder_id):
     try:
-        print(f"🔔 Async-напоминание: {text} | ID: {reminder_id}")
         await bot.send_message(chat_id=chat_id, text=f"⏰ Напоминание: {text}")
     except Exception as e:
         print(f"❌ Ошибка отправки: {e}")
@@ -59,10 +63,7 @@ def schedule_reminder(bot, chat_id, text, when_str, reminder_id):
             settings={"TIMEZONE": "Europe/Kyiv", "RETURN_AS_TIMEZONE_AWARE": True}
         )
         if not parsed_time:
-            print("⚠️ Время не распознано:", when_str)
             return False
-
-        print(f"✅ Планируем async-задачу на {parsed_time} | Текст: {text} | ID: {reminder_id}")
 
         scheduler.add_job(
             send_reminder,
@@ -79,7 +80,7 @@ def schedule_reminder(bot, chat_id, text, when_str, reminder_id):
         return False
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет! Напиши заметку или: напомни через 1 минуту - async тест")
+    await update.message.reply_text("Привет! Напиши текст, голос или: напомни через 1 минуту - пример")
 
 async def handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
@@ -113,6 +114,30 @@ async def handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_note(text)
         await update.message.reply_text("💾 Записал!")
 
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    voice: Voice = update.message.voice
+    file = await context.bot.get_file(voice.file_id)
+
+    ogg_path = f"{AUDIO_DIR}/{voice.file_id}.ogg"
+    wav_path = f"{AUDIO_DIR}/{voice.file_id}.wav"
+
+    await file.download_to_drive(ogg_path)
+
+    try:
+        sound = AudioSegment.from_file(ogg_path)
+        sound.export(wav_path, format="wav")
+
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(wav_path) as source:
+            audio = recognizer.record(source)
+            text = recognizer.recognize_google(audio, language="ru-RU")
+
+        save_note(text)
+        await update.message.reply_text(f"📝 Распознал и записал: {text}")
+    except Exception as e:
+        print(f"❌ Ошибка при распознавании: {e}")
+        await update.message.reply_text("⚠️ Не удалось распознать голосовое сообщение.")
+
 async def show_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reminders = load_reminders()
     user_reminders = [r for r in reminders if r["chat_id"] == update.message.chat_id]
@@ -144,7 +169,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("✅ Отмечено как выполненное.")
 
 async def on_startup(app):
-    print("🚀 Запускаем планировщик внутри on_startup")
     scheduler.start()
 
 if __name__ == '__main__':
@@ -152,6 +176,6 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reminders", show_reminders))
     app.add_handler(CallbackQueryHandler(handle_callback))
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_note))
-    print("🚀 Бот запущен")
     app.run_polling()
