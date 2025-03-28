@@ -212,7 +212,10 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             audio = recognizer.record(source)
             text = recognizer.recognize_google(audio, language="ru-RU")
 
+        logging.info(f"🗣 Распознан текст: '{text}'")
+
         if "напомни" in text.lower():
+            logging.info("🧠 Обрабатываем как напоминание...")
             when_str, reminder_text = extract_time_and_text(text)
             if when_str and reminder_text:
                 reminder_id = str(uuid.uuid4())
@@ -229,10 +232,13 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reminders = load_reminders()
                     reminders.append(reminder)
                     save_reminders(reminders)
+                    logging.info(f"📌 Установлено напоминание: {reminder}")
                     await update.message.reply_text(f"✅ Напоминание установлено на: {reminder_time}")
                     return
+            logging.warning("⚠️ Не удалось выделить время или текст.")
             await update.message.reply_text("⚠️ Не удалось распознать время.")
         else:
+            logging.info("📝 Расцениваем как обычную заметку.")
             save_note(text)
             await update.message.reply_text(f"📝 Распознал и записал: {text}")
     except Exception as e:
