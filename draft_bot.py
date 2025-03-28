@@ -44,12 +44,12 @@ def schedule_reminder(application, chat_id, text, when_str):
         return False
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет! Напиши заметку или: напомни завтра в 10:00 — отправить бриф")
-напомни завтра в 10:00 — отправить бриф")
+    await update.message.reply_text("Привет! Напиши заметку или: напомни завтра в 10:00 - отправить бриф")
+
 async def handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     if text.lower().startswith("напомни "):
-        parts = text.split("—")
+        parts = text.split("-")
         if len(parts) == 2:
             when_str = parts[0].replace("напомни", "").strip()
             reminder_text = parts[1].strip()
@@ -59,7 +59,7 @@ async def handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await update.message.reply_text("⚠️ Не удалось распознать время.")
         else:
-            await update.message.reply_text("⚠️ Формат: напомни завтра в 10:00 — текст")
+            await update.message.reply_text("⚠️ Формат: напомни завтра в 10:00 - текст")
     else:
         save_note(text)
         await update.message.reply_text("💾 Записал!")
