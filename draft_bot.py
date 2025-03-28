@@ -49,7 +49,7 @@ def schedule_reminder(application, chat_id, text, when_str):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Привет! Напиши заметку или: напомни завтра в 10:00 — отправить бриф")
-
+app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^напомни "), handle_reminder))
 async def handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     if text.lower().startswith("напомни "):
@@ -73,3 +73,4 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_note))
     app.run_polling()
+from reminders import handle_reminder
