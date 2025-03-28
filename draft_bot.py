@@ -5,7 +5,7 @@ import logging
 import dateparser
 import speech_recognition as sr
 from datetime import datetime
-from telegram import Update, Voice
+from telegram import Update, Voice, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -15,7 +15,6 @@ from telegram.ext import (
     filters,
 )
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from pydub import AudioSegment
 
 BOT_TOKEN = os.getenv("TOKEN")
@@ -24,9 +23,25 @@ REMINDERS_FILE = "reminders.json"
 AUDIO_DIR = "audio_notes"
 
 os.makedirs(AUDIO_DIR, exist_ok=True)
-
 logging.basicConfig(level=logging.INFO)
 scheduler = AsyncIOScheduler()
+
+TEXT_NUMBERS = {
+    "одну": "1", "один": "1", "одна": "1",
+    "две": "2", "два": "2",
+    "три": "3",
+    "четыре": "4",
+    "пять": "5",
+    "шесть": "6",
+    "семь": "7",
+    "восемь": "8",
+    "девять": "9",
+    "десять": "10",
+}
+
+def normalize_time_expression(text: str) -> str:
+    words = text.split()
+    return " ".join([TEXT_NUMBERS.get(w.lower(), w) for w in words])
 
 def load_notes():
     try:
@@ -57,6 +72,7 @@ async def send_reminder(bot, chat_id, text, reminder_id):
 
 def schedule_reminder(bot, chat_id, text, when_str, reminder_id):
     try:
+        when_str = normalize_time_expression(when_str)
         parsed_time = dateparser.parse(
             when_str,
             languages=["ru"],
@@ -79,8 +95,56 @@ def schedule_reminder(bot, chat_id, text, when_str, reminder_id):
         logging.error(f"Ошибка при установке напоминания: {e}")
         return False
 
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    voice: Voice = update.message.voice
+    file = await context.bot.get_file(voice.file_id)
+
+    ogg_path = f"{AUDIO_DIR}/{voice.file_id}.ogg"
+    wav_path = f"{AUDIO_DIR}/{voice.file_id}.wav"
+
+    await file.download_to_drive(ogg_path)
+
+    try:
+        sound = AudioSegment.from_file(ogg_path)
+        sound.export(wav_path, format="wav")
+
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(wav_path) as source:
+            audio = recognizer.record(source)
+            text = recognizer.recognize_google(audio, language="ru-RU")
+
+        if "напомни" in text.lower():
+            parts = text.lower().split("напомни")[-1].strip().split("—")
+            if len(parts) == 2:
+                when_str = parts[0].strip()
+                reminder_text = parts[1].strip()
+                reminder_id = str(uuid.uuid4())
+                chat_id = update.message.chat_id
+                reminder_time = schedule_reminder(context.bot, chat_id, reminder_text, when_str, reminder_id)
+                if reminder_time:
+                    reminder = {
+                        "id": reminder_id,
+                        "chat_id": chat_id,
+                        "text": reminder_text,
+                        "when": when_str,
+                        "datetime": reminder_time
+                    }
+                    reminders = load_reminders()
+                    reminders.append(reminder)
+                    save_reminders(reminders)
+                    await update.message.reply_text(f"✅ Напоминание установлено на: {reminder_time}")
+                    return
+
+            await update.message.reply_text("⚠️ Не удалось распознать время.")
+        else:
+            save_note(text)
+            await update.message.reply_text(f"📝 Распознал и записал: {text}")
+    except Exception as e:
+        print(f"❌ Ошибка при распознавании: {e}")
+        await update.message.reply_text("⚠️ Не удалось распознать голосовое сообщение.")
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет! Напиши текст, голос или: напомни через 1 минуту - пример")
+    await update.message.reply_text("🎙 Отправь текст, голос или: напомни через одну минуту — покурить")
 
 async def handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
@@ -104,39 +168,14 @@ async def handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reminders = load_reminders()
                 reminders.append(reminder)
                 save_reminders(reminders)
-
                 await update.message.reply_text(f"✅ Напоминание установлено на: {when_str}")
             else:
                 await update.message.reply_text("⚠️ Не удалось распознать время.")
         else:
-            await update.message.reply_text("⚠️ Формат: напомни через 1 минуту - текст")
+            await update.message.reply_text("⚠️ Формат: напомни завтра в 10 — текст")
     else:
         save_note(text)
         await update.message.reply_text("💾 Записал!")
-
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    voice: Voice = update.message.voice
-    file = await context.bot.get_file(voice.file_id)
-
-    ogg_path = f"{AUDIO_DIR}/{voice.file_id}.ogg"
-    wav_path = f"{AUDIO_DIR}/{voice.file_id}.wav"
-
-    await file.download_to_drive(ogg_path)
-
-    try:
-        sound = AudioSegment.from_file(ogg_path)
-        sound.export(wav_path, format="wav")
-
-        recognizer = sr.Recognizer()
-        with sr.AudioFile(wav_path) as source:
-            audio = recognizer.record(source)
-            text = recognizer.recognize_google(audio, language="ru-RU")
-
-        save_note(text)
-        await update.message.reply_text(f"📝 Распознал и записал: {text}")
-    except Exception as e:
-        print(f"❌ Ошибка при распознавании: {e}")
-        await update.message.reply_text("⚠️ Не удалось распознать голосовое сообщение.")
 
 async def show_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reminders = load_reminders()
