@@ -1,3 +1,4 @@
+
 import os
 import json
 import uuid
@@ -46,18 +47,34 @@ def normalize_time_expression(text: str) -> str:
 def extract_time_and_text(full_text: str):
     base = full_text.lower().replace("напомни", "").strip()
     base = normalize_time_expression(base)
+    logging.info(f"🔍 Анализ текста для распознавания времени: '{base}'")
 
     words = base.split()
-    for i in range(2, len(words)):
+    for i in range(2, len(words) + 1):
         time_candidate = " ".join(words[:i])
         parsed = dateparser.parse(
             time_candidate,
             languages=["ru"],
-            settings={"TIMEZONE": "Europe/Kyiv", "RETURN_AS_TIMEZONE_AWARE": True}
+            settings={
+                "TIMEZONE": "Europe/Kyiv",
+                "RETURN_AS_TIMEZONE_AWARE": True,
+                "PREFER_DATES_FROM": "future",
+                "RELATIVE_BASE": datetime.now()
+            }
         )
         if parsed:
             text_part = " ".join(words[i:])
             logging.info(f"✅ Распознано как напоминание: время='{time_candidate}', текст='{text_part}'")
+            return time_candidate, text_part
+
+    # ⛔ fallback — если ничего не сработало
+    if base.startswith("через"):
+        logging.warning("⚠️ Используем жёсткий fallback 'через N ...'")
+        split = base.split()
+        if len(split) >= 3:
+            time_candidate = " ".join(split[:3])
+            text_part = " ".join(split[3:])
+            logging.info(f"🛠 fallback: время='{time_candidate}', текст='{text_part}'")
             return time_candidate, text_part
 
     logging.warning(f"❌ Не удалось распознать время в тексте: '{base}'")
@@ -149,17 +166,15 @@ def extract_time_and_text(full_text: str):
             logging.info(f"✅ Распознано как напоминание: время='{time_candidate}', текст='{text_part}'")
             return time_candidate, text_part
 
-    # fallback: попробуем найти "через N"
+    # ⛔ fallback — если ничего не сработало
     if base.startswith("через"):
-        try:
-            parts = base.split()
-            if len(parts) >= 3:
-                fallback_time = " ".join(parts[:3])
-                text_fallback = " ".join(parts[3:])
-                logging.info(f"⚠️ fallback-сценарий: пробуем время='{fallback_time}', текст='{text_fallback}'")
-                return fallback_time, text_fallback
-        except Exception as e:
-            logging.error(f"Fallback error: {e}")
+        logging.warning("⚠️ Используем жёсткий fallback 'через N ...'")
+        split = base.split()
+        if len(split) >= 3:
+            time_candidate = " ".join(split[:3])
+            text_part = " ".join(split[3:])
+            logging.info(f"🛠 fallback: время='{time_candidate}', текст='{text_part}'")
+            return time_candidate, text_part
 
     logging.warning(f"❌ Не удалось распознать время в тексте: '{base}'")
     return None, None
