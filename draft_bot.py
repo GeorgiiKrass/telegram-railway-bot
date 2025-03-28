@@ -1,115 +1,157 @@
-
 import os
-import logging
-import uuid
 import json
+import uuid
+import logging
 import dateparser
 from datetime import datetime
-from telegram import Update, Voice
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters,
+)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from pydub import AudioSegment
-import speech_recognition as sr
 
 BOT_TOKEN = os.getenv("TOKEN")
-AUDIO_DIR = "audio_notes"
+NOTES_FILE = "notes.txt"
 REMINDERS_FILE = "reminders.json"
 
-os.makedirs(AUDIO_DIR, exist_ok=True)
-scheduler = AsyncIOScheduler()
 logging.basicConfig(level=logging.INFO)
+scheduler = AsyncIOScheduler()
+print("📢 AsyncIOScheduler создан")
 
-def save_reminder(r):
-    if not os.path.exists(REMINDERS_FILE):
-        data = []
-    else:
-        with open(REMINDERS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    data.append(r)
-    with open(REMINDERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-
-def extract_time_and_text(text):
-    original = text.lower().replace("напомни", "").strip()
-    normalized = original.replace("—", " ").replace("–", " ").replace("-", " ")
-    print(f"🎙 Распознанный текст: {text}")
-    print(f"🛠 Нормализованный текст: {normalized}")
-    
-    words = normalized.split()
-    for i in range(2, len(words)):
-        time_candidate = " ".join(words[:i])
-        text_candidate = " ".join(words[i:])
-        print(f"🔍 Пробуем время: {time_candidate} | текст: {text_candidate}")
-        parsed = dateparser.parse(
-            time_candidate,
-            languages=["ru"],
-            settings={
-                "PREFER_DATES_FROM": "future",
-                "RETURN_AS_TIMEZONE_AWARE": True,
-                "RELATIVE_BASE": datetime.now()
-            }
-        )
-        if parsed:
-            print(f"✅ Успех: {parsed}")
-            return time_candidate, text_candidate, parsed
-    
-    print("❌ Не удалось распарсить ни одну комбинацию")
-    return None, None, None
-
-def schedule(application, chat_id, text, when_str, parsed_time):
+def load_notes():
     try:
-        job_id = str(uuid.uuid4())
+        with open(NOTES_FILE, "r", encoding="utf-8") as f:
+            return f.readlines()
+    except FileNotFoundError:
+        return []
+
+def save_note(text):
+    with open(NOTES_FILE, "a", encoding="utf-8") as f:
+        f.write(text + "\n")
+
+def load_reminders():
+    if not os.path.exists(REMINDERS_FILE):
+        return []
+    with open(REMINDERS_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_reminders(reminders):
+    with open(REMINDERS_FILE, "w", encoding="utf-8") as f:
+        json.dump(reminders, f, indent=2, ensure_ascii=False)
+
+async def send_reminder(bot, chat_id, text, reminder_id):
+    try:
+        print(f"🔔 Async-напоминание: {text} | ID: {reminder_id}")
+        await bot.send_message(chat_id=chat_id, text=f"⏰ Напоминание: {text}")
+    except Exception as e:
+        print(f"❌ Ошибка отправки: {e}")
+
+def schedule_reminder(bot, chat_id, text, when_str, reminder_id):
+    try:
+        parsed_time = dateparser.parse(
+            when_str,
+            languages=["ru"],
+            settings={"TIMEZONE": "Europe/Kyiv", "RETURN_AS_TIMEZONE_AWARE": True}
+        )
+        if not parsed_time:
+            print("⚠️ Время не распознано:", when_str)
+            return False
+
+        print(f"✅ Планируем async-задачу на {parsed_time} | Текст: {text} | ID: {reminder_id}")
+
         scheduler.add_job(
-            lambda: send_reminder(application, chat_id, text, job_id),
+            send_reminder,
             trigger='date',
             run_date=parsed_time,
-            id=job_id
+            args=[bot, chat_id, text, reminder_id],
+            id=reminder_id,
+            replace_existing=True,
+            coalesce=True
         )
-        print(f"✅ Планируем задачу на {parsed_time} | Текст: {text} | ID: {job_id}")
-        r = {"chat_id": chat_id, "text": text, "datetime": parsed_time.strftime("%Y-%m-%d %H:%M"), "id": job_id}
-        save_reminder(r)
-        return True
+        return parsed_time.strftime("%Y-%m-%d %H:%M")
     except Exception as e:
-        print(f"❌ Ошибка при планировании задачи: {e}")
+        logging.error(f"Ошибка при установке напоминания: {e}")
         return False
 
-def send_reminder(application, chat_id, text, job_id):
-    try:
-        application.bot.send_message(chat_id=chat_id, text=f"⏰ Напоминание: {text}")
-        print(f"📤 Отправлено напоминание [{job_id}]: {text}")
-    except Exception as e:
-        print(f"❌ Ошибка при отправке напоминания [{job_id}]: {e}")
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Привет! Напиши заметку или: напомни через 1 минуту - async тест")
 
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    voice: Voice = update.message.voice
-    file = await context.bot.get_file(voice.file_id)
-    ogg = f"{AUDIO_DIR}/{voice.file_id}.ogg"
-    wav = f"{AUDIO_DIR}/{voice.file_id}.wav"
-    await file.download_to_drive(ogg)
+async def handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if text.lower().startswith("напомни "):
+        parts = text.split("-")
+        if len(parts) == 2:
+            when_str = parts[0].replace("напомни", "").strip()
+            reminder_text = parts[1].strip()
+            chat_id = update.message.chat_id
+            reminder_id = str(uuid.uuid4())
 
-    try:
-        sound = AudioSegment.from_file(ogg)
-        sound.export(wav, format="wav")
-        recog = sr.Recognizer()
-        with sr.AudioFile(wav) as source:
-            audio = recog.record(source)
-            text = recog.recognize_google(audio, language="ru-RU")
-        print(f"🎙 Текст: {text}")
-        if "напомни" in text.lower():
-            when, body, parsed = extract_time_and_text(text)
-            if when and body and parsed:
-                if schedule(context.application, update.message.chat_id, body, when, parsed):
-                    await update.message.reply_text("✅ Напоминание установлено")
-                    return
-            await update.message.reply_text("⚠️ Не удалось распознать время.")
+            reminder_time = schedule_reminder(context.bot, chat_id, reminder_text, when_str, reminder_id)
+            if reminder_time:
+                reminder = {
+                    "id": reminder_id,
+                    "chat_id": chat_id,
+                    "text": reminder_text,
+                    "when": when_str,
+                    "datetime": reminder_time
+                }
+                reminders = load_reminders()
+                reminders.append(reminder)
+                save_reminders(reminders)
+
+                await update.message.reply_text(f"✅ Напоминание установлено на: {when_str}")
+            else:
+                await update.message.reply_text("⚠️ Не удалось распознать время.")
         else:
-            await update.message.reply_text(f"📝 Распознал как заметку: {text}")
-    except Exception as e:
-        print(f"❌ Ошибка: {e}")
-        await update.message.reply_text("⚠️ Ошибка распознавания")
+            await update.message.reply_text("⚠️ Формат: напомни через 1 минуту - текст")
+    else:
+        save_note(text)
+        await update.message.reply_text("💾 Записал!")
+
+async def show_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    reminders = load_reminders()
+    user_reminders = [r for r in reminders if r["chat_id"] == update.message.chat_id]
+    if not user_reminders:
+        await update.message.reply_text("🔕 У вас нет активных напоминаний.")
+        return
+
+    for r in user_reminders:
+        text = f"⏳ {r['datetime']} — {r['text']}"
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Выполнено", callback_data=f"done:{r['id']}"),
+             InlineKeyboardButton("❌ Удалить", callback_data=f"delete:{r['id']}")]
+        ])
+        await update.message.reply_text(text, reply_markup=keyboard)
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    action, reminder_id = data.split(":")
+    reminders = load_reminders()
+    updated_reminders = [r for r in reminders if r["id"] != reminder_id]
+    save_reminders(updated_reminders)
+
+    if action == "delete":
+        await query.edit_message_text("❌ Напоминание удалено.")
+    elif action == "done":
+        await query.edit_message_text("✅ Отмечено как выполненное.")
+
+async def on_startup(app):
+    print("🚀 Запускаем планировщик внутри on_startup")
+    scheduler.start()
 
 if __name__ == '__main__':
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    scheduler.start()
-    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    app = ApplicationBuilder().token(BOT_TOKEN).post_init(on_startup).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("reminders", show_reminders))
+    app.add_handler(CallbackQueryHandler(handle_callback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_note))
+    print("🚀 Бот запущен")
     app.run_polling()
