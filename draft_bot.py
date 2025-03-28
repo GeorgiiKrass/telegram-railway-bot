@@ -95,11 +95,9 @@ async def show_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔕 У вас нет активных напоминаний.")
         return
 
-    response = "🗓 Ваши напоминания:
-"
+    response = "🗓 Ваши напоминания:\n"
     for r in user_reminders:
-        response += f"⏳ {r['datetime']} — {r['text']}
-"
+        response += f"⏳ {r['datetime']} — {r['text']}\n"
     await update.message.reply_text(response)
 
 if __name__ == '__main__':
