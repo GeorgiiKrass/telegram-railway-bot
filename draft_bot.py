@@ -1,6 +1,7 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 import logging
 import os
+import dateparser
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -25,18 +26,18 @@ def save_note(text):
 
 def schedule_reminder(application, chat_id, text, when_str):
     try:
-        if "завтра" in when_str:
-            time_part = when_str.split("в")[-1].strip()
-            remind_time = datetime.now() + timedelta(days=1)
-            hour, minute = map(int, time_part.split(":"))
-            remind_time = remind_time.replace(hour=hour, minute=minute, second=0)
-        else:
+        parsed_time = dateparser.parse(
+            when_str,
+            languages=["ru"],
+            settings={"TIMEZONE": "Europe/Kyiv", "RETURN_AS_TIMEZONE_AWARE": True}
+        )
+        if not parsed_time:
             return False
 
         scheduler.add_job(
             lambda: application.bot.send_message(chat_id=chat_id, text=f"⏰ Напоминание: {text}"),
             trigger='date',
-            run_date=remind_time
+            run_date=parsed_time
         )
         return True
     except Exception as e:
@@ -55,7 +56,7 @@ async def handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reminder_text = parts[1].strip()
             chat_id = update.message.chat_id
             if schedule_reminder(context.application, chat_id, reminder_text, when_str):
-                await update.message.reply_text(f"✅ Напоминание установлено на {when_str}")
+                await update.message.reply_text(f"✅ Напоминание установлено на: {when_str}")
             else:
                 await update.message.reply_text("⚠️ Не удалось распознать время.")
         else:
