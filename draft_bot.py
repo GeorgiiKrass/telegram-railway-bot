@@ -30,13 +30,30 @@ def save_reminder(r):
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 def extract_time_and_text(text):
-    if "через" in text:
-        parts = text.lower().replace("напомни", "").strip().split()
-        if len(parts) >= 4:
-            time_candidate = " ".join(parts[:3])
-            text_candidate = " ".join(parts[3:])
-            print(f"🛠 fallback: время = '{time_candidate}', текст = '{text_candidate}'")
+    original = text.lower().replace("напомни", "").strip()
+    normalized = original.replace("—", " ").replace("–", " ").replace("-", " ")
+    print(f"🎙 Распознанный текст: {text}")
+    print(f"🛠 Нормализованный текст: {normalized}")
+    
+    words = normalized.split()
+    for i in range(2, len(words)):
+        time_candidate = " ".join(words[:i])
+        text_candidate = " ".join(words[i:])
+        print(f"🔍 Пробуем время: {time_candidate} | текст: {text_candidate}")
+        parsed = dateparser.parse(
+            time_candidate,
+            languages=["ru"],
+            settings={
+                "PREFER_DATES_FROM": "future",
+                "RETURN_AS_TIMEZONE_AWARE": True,
+                "RELATIVE_BASE": datetime.now()
+            }
+        )
+        if parsed:
+            print(f"✅ Успех: {parsed}")
             return time_candidate, text_candidate
+    
+    print("❌ Не удалось распарсить ни одну комбинацию")
     return None, None
 
 def schedule(application, chat_id, text, when_str):
