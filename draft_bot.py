@@ -21,8 +21,7 @@ REMINDERS_FILE = "reminders.json"
 
 logging.basicConfig(level=logging.INFO)
 scheduler = AsyncIOScheduler()
-scheduler.start()
-print("📢 AsyncIOScheduler started")
+print("📢 AsyncIOScheduler создан")
 
 def load_notes():
     try:
@@ -144,8 +143,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "done":
         await query.edit_message_text("✅ Отмечено как выполненное.")
 
+async def on_startup(app):
+    print("🚀 Запускаем планировщик внутри on_startup")
+    scheduler.start()
+
 if __name__ == '__main__':
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = ApplicationBuilder().token(BOT_TOKEN).post_init(on_startup).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reminders", show_reminders))
     app.add_handler(CallbackQueryHandler(handle_callback))
