@@ -1,3 +1,4 @@
+
 import os
 import json
 import uuid
@@ -44,21 +45,23 @@ def normalize_time_expression(text: str) -> str:
     return " ".join([TEXT_NUMBERS.get(w.lower(), w) for w in words])
 
 def extract_time_and_text(full_text: str):
-    # Удаляем "напомни"
     base = full_text.lower().replace("напомни", "").strip()
     base = normalize_time_expression(base)
 
-    # Ищем время в начале строки
-    for i in range(2, len(base.split()) + 1):
-        time_candidate = " ".join(base.split()[:i])
+    words = base.split()
+    for i in range(2, len(words)):
+        time_candidate = " ".join(words[:i])
         parsed = dateparser.parse(
             time_candidate,
             languages=["ru"],
             settings={"TIMEZONE": "Europe/Kyiv", "RETURN_AS_TIMEZONE_AWARE": True}
         )
         if parsed:
-            text_part = " ".join(base.split()[i:])
+            text_part = " ".join(words[i:])
+            logging.info(f"✅ Распознано как напоминание: время='{time_candidate}', текст='{text_part}'")
             return time_candidate, text_part
+
+    logging.warning(f"❌ Не удалось распознать время в тексте: '{base}'")
     return None, None
 
 def load_notes():
@@ -97,6 +100,7 @@ def schedule_reminder(bot, chat_id, text, when_str, reminder_id):
             settings={"TIMEZONE": "Europe/Kyiv", "RETURN_AS_TIMEZONE_AWARE": True}
         )
         if not parsed_time:
+            logging.warning(f"⚠️ dateparser не распознал: '{when_str}'")
             return False
 
         scheduler.add_job(
@@ -155,11 +159,11 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_note(text)
             await update.message.reply_text(f"📝 Распознал и записал: {text}")
     except Exception as e:
-        print(f"❌ Ошибка при распознавании: {e}")
+        logging.error(f"❌ Ошибка при распознавании: {e}")
         await update.message.reply_text("⚠️ Не удалось распознать голосовое сообщение.")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🎙 Отправь текст, голос или: напомни через одну минуту выпить воды")
+    await update.message.reply_text("🎙 Отправь голос или текст: напомни через 2 минуты выпить воды")
 
 async def handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
