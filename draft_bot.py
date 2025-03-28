@@ -38,7 +38,7 @@ def save_reminders(reminders):
     with open(REMINDERS_FILE, "w", encoding="utf-8") as f:
         json.dump(reminders, f, indent=2, ensure_ascii=False)
 
-def schedule_reminder(application, chat_id, text, when_str, reminder_id):
+def schedule_reminder(bot, chat_id, text, when_str, reminder_id):
     try:
         parsed_time = dateparser.parse(
             when_str,
@@ -52,7 +52,7 @@ def schedule_reminder(application, chat_id, text, when_str, reminder_id):
         print(f"✅ Планируем задачу на {parsed_time} | Текст: {text} | ID: {reminder_id}")
 
         scheduler.add_job(
-            lambda: send_reminder(application, chat_id, text, reminder_id),
+            lambda: send_reminder(bot, chat_id, text, reminder_id),
             trigger='date',
             run_date=parsed_time,
             id=reminder_id,
@@ -63,9 +63,12 @@ def schedule_reminder(application, chat_id, text, when_str, reminder_id):
         logging.error(f"Ошибка при установке напоминания: {e}")
         return False
 
-def send_reminder(application, chat_id, text, reminder_id):
-    print(f"🔔 Отправляем напоминание: {text} | ID: {reminder_id}")
-    application.bot.send_message(chat_id=chat_id, text=f"⏰ Напоминание: {text}")
+def send_reminder(bot, chat_id, text, reminder_id):
+    try:
+        print(f"🔔 Отправляем напоминание: {text} | ID: {reminder_id}")
+        bot.send_message(chat_id=chat_id, text=f"⏰ Напоминание: {text}")
+    except Exception as e:
+        print(f"❌ Ошибка отправки напоминания: {e}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Привет! Напиши заметку или: напомни через 1 минуту - пример")
@@ -80,7 +83,7 @@ async def handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id = update.message.chat_id
             reminder_id = str(uuid.uuid4())
 
-            reminder_time = schedule_reminder(context.application, chat_id, reminder_text, when_str, reminder_id)
+            reminder_time = schedule_reminder(context.bot, chat_id, reminder_text, when_str, reminder_id)
             if reminder_time:
                 reminder = {
                     "id": reminder_id,
