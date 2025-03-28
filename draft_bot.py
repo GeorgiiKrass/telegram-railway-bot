@@ -44,9 +44,8 @@ def schedule_reminder(application, chat_id, text, when_str):
         return False
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет! Напиши заметку или:
+    await update.message.reply_text("Привет! Напиши заметку или: напомни завтра в 10:00 — отправить бриф")
 напомни завтра в 10:00 — отправить бриф")
-
 async def handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     if text.lower().startswith("напомни "):
