@@ -1,16 +1,12 @@
-from datetime import datetime
-import pytz
+from datetime import datetime, timedelta
 import logging
 import os
-import json
-from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 from apscheduler.schedulers.background import BackgroundScheduler
 
 BOT_TOKEN = os.getenv("TOKEN")
 NOTES_FILE = "notes.txt"
-REMINDERS_FILE = "reminders.json"
 
 logging.basicConfig(level=logging.INFO)
 scheduler = BackgroundScheduler()
@@ -48,8 +44,9 @@ def schedule_reminder(application, chat_id, text, when_str):
         return False
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет! Напиши заметку или: напомни завтра в 10:00 — отправить бриф")
-app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^напомни "), handle_reminder))
+    await update.message.reply_text("Привет! Напиши заметку или:
+напомни завтра в 10:00 — отправить бриф")
+
 async def handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     if text.lower().startswith("напомни "):
@@ -73,4 +70,3 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_note))
     app.run_polling()
-from reminders import handle_reminder
