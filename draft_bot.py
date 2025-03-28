@@ -91,17 +91,38 @@ async def send_reminder(bot, chat_id, text, reminder_id):
     except Exception as e:
         print(f"❌ Ошибка отправки: {e}")
 
+# ... (код оставлен прежним до schedule_reminder)
 def schedule_reminder(bot, chat_id, text, when_str, reminder_id):
     try:
         when_str = normalize_time_expression(when_str)
         parsed_time = dateparser.parse(
             when_str,
             languages=["ru"],
-            settings={"TIMEZONE": "Europe/Kyiv", "RETURN_AS_TIMEZONE_AWARE": True}
+            settings={
+                "TIMEZONE": "Europe/Kyiv",
+                "RETURN_AS_TIMEZONE_AWARE": True,
+                "PREFER_DATES_FROM": "future",
+                "RELATIVE_BASE": datetime.now()
+            }
         )
         if not parsed_time:
             logging.warning(f"⚠️ dateparser не распознал: '{when_str}'")
             return False
+
+        scheduler.add_job(
+            send_reminder,
+            trigger='date',
+            run_date=parsed_time,
+            args=[bot, chat_id, text, reminder_id],
+            id=reminder_id,
+            replace_existing=True,
+            coalesce=True
+        )
+        return parsed_time.strftime("%Y-%m-%d %H:%M")
+    except Exception as e:
+        logging.error(f"Ошибка при установке напоминания: {e}")
+        return False
+# ... (остальной код без изменений)
 
         scheduler.add_job(
             send_reminder,
