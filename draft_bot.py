@@ -103,6 +103,6 @@ async def show_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
 if __name__ == '__main__':
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("напоминания", show_reminders))
+    app.add_handler(CommandHandler("reminders", show_reminders))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_note))
     app.run_polling()
