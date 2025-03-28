@@ -92,9 +92,11 @@ async def send_reminder(bot, chat_id, text, reminder_id):
         print(f"❌ Ошибка отправки: {e}")
 
 # ... (код оставлен прежним до schedule_reminder)
+# Обновлённый schedule_reminder с логами и RELATIVE_BASE
 def schedule_reminder(bot, chat_id, text, when_str, reminder_id):
     try:
         when_str = normalize_time_expression(when_str)
+        logging.info(f"🧪 Пробуем распарсить дату из: '{when_str}'")
         parsed_time = dateparser.parse(
             when_str,
             languages=["ru"],
@@ -106,8 +108,62 @@ def schedule_reminder(bot, chat_id, text, when_str, reminder_id):
             }
         )
         if not parsed_time:
-            logging.warning(f"⚠️ dateparser не распознал: '{when_str}'")
+            logging.warning(f"⚠️ dateparser не смог распознать: '{when_str}'")
             return False
+
+        scheduler.add_job(
+            send_reminder,
+            trigger='date',
+            run_date=parsed_time,
+            args=[bot, chat_id, text, reminder_id],
+            id=reminder_id,
+            replace_existing=True,
+            coalesce=True
+        )
+        logging.info(f"✅ Планируем задачу на {parsed_time} | Текст: {text} | ID: {reminder_id}")
+        return parsed_time.strftime("%Y-%m-%d %H:%M")
+    except Exception as e:
+        logging.error(f"❌ Ошибка при установке напоминания: {e}")
+        return False
+
+# extract_time_and_text с fallback
+def extract_time_and_text(full_text: str):
+    base = full_text.lower().replace("напомни", "").strip()
+    base = normalize_time_expression(base)
+    logging.info(f"🔍 Анализ текста для распознавания времени: '{base}'")
+
+    words = base.split()
+    for i in range(2, len(words) + 1):
+        time_candidate = " ".join(words[:i])
+        parsed = dateparser.parse(
+            time_candidate,
+            languages=["ru"],
+            settings={
+                "TIMEZONE": "Europe/Kyiv",
+                "RETURN_AS_TIMEZONE_AWARE": True,
+                "PREFER_DATES_FROM": "future",
+                "RELATIVE_BASE": datetime.now()
+            }
+        )
+        if parsed:
+            text_part = " ".join(words[i:])
+            logging.info(f"✅ Распознано как напоминание: время='{time_candidate}', текст='{text_part}'")
+            return time_candidate, text_part
+
+    # fallback: попробуем найти "через N"
+    if base.startswith("через"):
+        try:
+            parts = base.split()
+            if len(parts) >= 3:
+                fallback_time = " ".join(parts[:3])
+                text_fallback = " ".join(parts[3:])
+                logging.info(f"⚠️ fallback-сценарий: пробуем время='{fallback_time}', текст='{text_fallback}'")
+                return fallback_time, text_fallback
+        except Exception as e:
+            logging.error(f"Fallback error: {e}")
+
+    logging.warning(f"❌ Не удалось распознать время в тексте: '{base}'")
+    return None, None
 
         scheduler.add_job(
             send_reminder,
