@@ -43,6 +43,24 @@ def normalize_time_expression(text: str) -> str:
     words = text.split()
     return " ".join([TEXT_NUMBERS.get(w.lower(), w) for w in words])
 
+def extract_time_and_text(full_text: str):
+    # Удаляем "напомни"
+    base = full_text.lower().replace("напомни", "").strip()
+    base = normalize_time_expression(base)
+
+    # Ищем время в начале строки
+    for i in range(2, len(base.split()) + 1):
+        time_candidate = " ".join(base.split()[:i])
+        parsed = dateparser.parse(
+            time_candidate,
+            languages=["ru"],
+            settings={"TIMEZONE": "Europe/Kyiv", "RETURN_AS_TIMEZONE_AWARE": True}
+        )
+        if parsed:
+            text_part = " ".join(base.split()[i:])
+            return time_candidate, text_part
+    return None, None
+
 def load_notes():
     try:
         with open(NOTES_FILE, "r", encoding="utf-8") as f:
@@ -114,10 +132,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text = recognizer.recognize_google(audio, language="ru-RU")
 
         if "напомни" in text.lower():
-            parts = text.lower().split("напомни")[-1].strip().split("—")
-            if len(parts) == 2:
-                when_str = parts[0].strip()
-                reminder_text = parts[1].strip()
+            when_str, reminder_text = extract_time_and_text(text)
+            if when_str and reminder_text:
                 reminder_id = str(uuid.uuid4())
                 chat_id = update.message.chat_id
                 reminder_time = schedule_reminder(context.bot, chat_id, reminder_text, when_str, reminder_id)
@@ -134,7 +150,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     save_reminders(reminders)
                     await update.message.reply_text(f"✅ Напоминание установлено на: {reminder_time}")
                     return
-
             await update.message.reply_text("⚠️ Не удалось распознать время.")
         else:
             save_note(text)
@@ -144,15 +159,13 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Не удалось распознать голосовое сообщение.")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🎙 Отправь текст, голос или: напомни через одну минуту — покурить")
+    await update.message.reply_text("🎙 Отправь текст, голос или: напомни через одну минуту выпить воды")
 
 async def handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     if text.lower().startswith("напомни "):
-        parts = text.split("-")
-        if len(parts) == 2:
-            when_str = parts[0].replace("напомни", "").strip()
-            reminder_text = parts[1].strip()
+        when_str, reminder_text = extract_time_and_text(text)
+        if when_str and reminder_text:
             chat_id = update.message.chat_id
             reminder_id = str(uuid.uuid4())
 
@@ -168,11 +181,10 @@ async def handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reminders = load_reminders()
                 reminders.append(reminder)
                 save_reminders(reminders)
-                await update.message.reply_text(f"✅ Напоминание установлено на: {when_str}")
-            else:
-                await update.message.reply_text("⚠️ Не удалось распознать время.")
-        else:
-            await update.message.reply_text("⚠️ Формат: напомни завтра в 10 — текст")
+                await update.message.reply_text(f"✅ Напоминание установлено на: {reminder_time}")
+                return
+
+        await update.message.reply_text("⚠️ Не удалось распознать время.")
     else:
         save_note(text)
         await update.message.reply_text("💾 Записал!")
